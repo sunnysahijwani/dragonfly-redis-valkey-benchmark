@@ -1,0 +1,96 @@
+<h1>Latency under load: the same story as throughput, from the other side</h1>
+<p><strong>Part 4 of 7</strong> · <a href="/blog/redis-cluster-saturation-problem">← The cluster-saturation problem</a> · <a href="/blog/dragonfly-vs-redis-memory">Next: Memory efficiency →</a></p>
+<p><img src="/assets/images/blog/dragonfly-benchmark/04-latency.png" alt="Latency at 48 cores (log scale): Dragonfly sub-ms, a well-driven cluster 0.56ms, a naive cluster client 84ms p50" /></p>
+<p><em>Part 4. Throughput (<a href="/blog/dragonfly-vs-redis-throughput-scaling">Part 2</a>) tells you how much work gets done; latency tells you how it feels. On this benchmark they turn out to be the same story — and the &quot;realistic cluster&quot; numbers need careful, honest reading.</em></p>
+<p>All numbers below are <strong>client-side</strong> latency from memtier (never the engine's self-reported <code>info</code> — Dragonfly counts network+queue time there and Redis doesn't, so those aren't comparable). Read-heavy, 100 B, 48 cores.</p>
+<h2>Without pipelining (depth 1) — concurrency only</h2>
+<table>
+<thead>
+<tr>
+<th>series</th>
+<th align="right">p50</th>
+<th align="right">p99</th>
+<th align="right">p99.9</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Dragonfly</strong></td>
+<td align="right"><strong>0.34 ms</strong></td>
+<td align="right">0.55 ms</td>
+<td align="right">0.71 ms</td>
+</tr>
+<tr>
+<td>Redis cluster (realistic)</td>
+<td align="right">10.4 ms</td>
+<td align="right">19.2 ms</td>
+<td align="right">30.1 ms</td>
+</tr>
+<tr>
+<td>Valkey cluster (realistic)</td>
+<td align="right">10.4 ms</td>
+<td align="right">18.5 ms</td>
+<td align="right">29.1 ms</td>
+</tr>
+</tbody>
+</table>
+<h2>With pipelining (depth 16) — throughput regime</h2>
+<table>
+<thead>
+<tr>
+<th>series</th>
+<th align="right">p50</th>
+<th align="right">p99</th>
+<th align="right">p99.9</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Dragonfly</strong></td>
+<td align="right">0.88 ms</td>
+<td align="right">2.42 ms</td>
+<td align="right">3.33 ms</td>
+</tr>
+<tr>
+<td><strong>Redis cluster — fully driven</strong></td>
+<td align="right"><strong>0.56 ms</strong></td>
+<td align="right">1.51 ms</td>
+<td align="right">4.64 ms</td>
+</tr>
+<tr>
+<td><strong>Valkey cluster — fully driven</strong></td>
+<td align="right">0.57 ms</td>
+<td align="right">1.32 ms</td>
+<td align="right">3.50 ms</td>
+</tr>
+<tr>
+<td>Redis cluster — realistic</td>
+<td align="right"><strong>84 ms</strong></td>
+<td align="right">138 ms</td>
+<td align="right">151 ms</td>
+</tr>
+<tr>
+<td>Valkey cluster — realistic</td>
+<td align="right">86 ms</td>
+<td align="right">141 ms</td>
+<td align="right">158 ms</td>
+</tr>
+</tbody>
+</table>
+<h2>Reading this honestly</h2>
+<p>Three things, and the third is the one people will (fairly) push on:</p>
+<ol>
+<li>
+<p><strong>Dragonfly is consistently sub-millisecond</strong> — 0.34 ms unpipelined, 0.88 ms under a heavy pipelined load. One endpoint, no client-side routing, predictable tail.</p>
+</li>
+<li>
+<p><strong>A well-driven cluster has excellent latency too</strong> — the fully-driven shards actually beat Dragonfly at the median (0.56 ms), because each shard gets a clean, dedicated, fully-pipelined stream. So <em>the shards themselves are fast.</em> When Redis Cluster is driven right, its latency is great.</p>
+</li>
+<li>
+<p><strong>The &quot;realistic cluster&quot; latency explodes — 84 ms p50 — and that's a client-side effect, not the shards.</strong> This is the same bottleneck from <a href="/blog/redis-cluster-saturation-problem">Part 3</a>: a single cluster-mode client can't route to 48 shards fast enough, so requests <strong>queue up on the client</strong> waiting to be sent. That queuing shows up as latency. It is <em>not</em> the cluster's servers being slow — driven well, the same shards do 0.56 ms.</p>
+</li>
+</ol>
+<p>So I won't claim &quot;Redis Cluster has 84 ms latency&quot; — that would be dishonest. What I <em>will</em> claim, because it's what the data shows: <strong>a normal single-process cluster client, under load heavy enough to matter, degrades in both throughput and tail latency at the same time</strong> — and you feel it as multi-hundred-millisecond p99s. Fixing it means the client-side engineering from Part 3.</p>
+<h2>The takeaway</h2>
+<p>Latency here isn't a separate axis — it's throughput viewed from the other side. Where the client can keep up (Dragonfly always; a cluster only with per-shard routing + enough client capacity), latency is sub-millisecond and tight. Where the client is the bottleneck (a naive cluster client), <strong>latency and throughput fail together</strong>. Dragonfly's value is that &quot;the client keeps up&quot; is the <em>default</em>, not something you engineer.</p>
+<p><em>Next: <a href="/blog/dragonfly-vs-redis-memory">Part 5 — memory efficiency</a>, the least-disputable number in the whole series.</em></p>

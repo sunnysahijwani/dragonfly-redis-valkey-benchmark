@@ -1,0 +1,47 @@
+<h1>Memory efficiency: bytes per key</h1>
+<p><strong>Part 5 of 7</strong> · <a href="/blog/dragonfly-vs-redis-latency">← Latency under load</a> · <a href="/blog/redis-cluster-operational-simplicity">Next: Operational simplicity →</a></p>
+<p><img src="/assets/images/blog/dragonfly-benchmark/05-memory.png" alt="Bytes per key: Dragonfly 146, Redis 165, Valkey 169 — Dragonfly ~13% leaner" /></p>
+<p><em>Part 5. The shortest post in the series, and the least arguable number in it — because memory footprint is about data-structure design, not how hard you drive the client. It's the same on a laptop and on 48 bare-metal cores.</em></p>
+<h2>The measurement</h2>
+<p>I loaded <strong>1,000,000 keys × 100-byte values</strong> into each engine, subtracted the empty-server baseline, and divided by key count:</p>
+<table>
+<thead>
+<tr>
+<th>Engine</th>
+<th align="right">bytes / key</th>
+<th align="right">vs Dragonfly</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Dragonfly</strong></td>
+<td align="right"><strong>146.1</strong></td>
+<td align="right">—</td>
+</tr>
+<tr>
+<td>Redis 8.2</td>
+<td align="right">165.3</td>
+<td align="right">+13%</td>
+</tr>
+<tr>
+<td>Valkey 8.1</td>
+<td align="right">168.7</td>
+<td align="right">+15%</td>
+</tr>
+</tbody>
+</table>
+<p>Dragonfly stores the same data in <strong>~12–13% less memory</strong> than Redis, and a bit less than Valkey.</p>
+<h2>Why this one is trustworthy</h2>
+<p>Two reasons I trust this number more than any throughput number:</p>
+<ol>
+<li><strong>It's hardware-independent.</strong> I got 146.1 / 165.3 / 168.7 on my laptop <em>and</em> 146.1 / 165.3 / 168.7 on the c7i.metal box — to the decimal. Memory layout doesn't care about cores, io_uring, or how big your client is. There's nothing to &quot;drive&quot; and nothing to get wrong.</li>
+<li><strong>It's methodology-proof.</strong> No pipelining, no cluster routing, no client bottleneck — just &quot;store a million keys, read the memory counter.&quot; The only care needed is subtracting the empty baseline and loading exactly N <em>distinct</em> keys (an easy thing to get wrong — load them in parallel with overlapping ranges and you'll silently store far fewer).</li>
+</ol>
+<h2>What it means (and doesn't)</h2>
+<p>Dragonfly's edge comes from more compact internal data structures. For a 100-byte value, ~46–69 bytes of per-key overhead sits on top of the payload, and Dragonfly carries less of it.</p>
+<p>Two honest qualifiers:</p>
+<ul>
+<li><strong>The percentage shrinks as values grow.</strong> At 100 B, overhead is a big fraction of each key; at 10 KB values it's noise. Memory efficiency matters most for <strong>many-small-keys</strong> workloads (sessions, counters, feature flags, rate-limit buckets) — exactly where you also have the most keys.</li>
+<li><strong>13% is real money at scale but not a headline-grabber.</strong> On a 256 GB dataset it's ~33 GB — a meaningful instance-size difference. It won't decide an architecture on its own, but it's a steady, dependable point in Dragonfly's favor that no amount of benchmarking dispute can erode.</li>
+</ul>
+<p><em>Next: <a href="/blog/redis-cluster-operational-simplicity">Part 6 — operational simplicity</a>, where the cluster's cross-key limitations get quantified — and where Dragonfly's real structural advantage lives.</em></p>

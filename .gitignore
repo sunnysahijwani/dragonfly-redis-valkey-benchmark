@@ -1,0 +1,24 @@
+# ── Blog write-up stays on the site (canonical), NOT duplicated in the repo ──
+# Keeps SEO/traffic on two-techies.com and separates "proof" (this repo) from
+# "narrative" (the site). This also covers the private files (OUTREACH-ODED.md,
+# PUBLISHING-PLAN.md, 00-linkedin-anchor.md) since they're all *.md.
+blog/*.md
+blog/html/                   # CMS-rendered HTML
+# NOTE: blog/images/ (the charts) is intentionally KEPT — the README uses them
+#       and images aren't indexed article text, so no duplication problem.
+
+# ── Site-specific / not part of the reproducible benchmark ──────────────
+analysis/render-html.php     # hardcoded path to a local Laravel vendor/
+
+# ── Local/Mac test artifacts (superseded by results/runs-aws.csv) ───────
+results/runs.csv
+results/summary.csv
+results/report.md
+results/dress-rehearsal.log
+results/*.json
+results/.cluster-entry
+
+# ── cruft ───────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+.DS_Store

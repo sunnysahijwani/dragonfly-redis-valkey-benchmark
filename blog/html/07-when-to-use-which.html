@@ -1,0 +1,89 @@
+<h1>When to use which: Dragonfly vs Redis vs Valkey</h1>
+<p><strong>Part 7 of 7</strong> · <a href="/blog/redis-cluster-operational-simplicity">← Operational simplicity</a> · <a href="/blog/dragonfly-vs-redis-valkey-benchmark">Series index</a></p>
+<p><img src="/assets/images/blog/dragonfly-benchmark/07-decision.png" alt="Trade-off radar: Dragonfly leads on throughput-with-a-normal-client, operational simplicity, multi-key and memory; Redis/Valkey cluster leads on small failure domains and raw throughput ceiling" /></p>
+<p><em>Part 7, the finale. Six posts of measurements come down to this: there is no universal winner, and the right choice depends on which corner of a three-way trade-off you care about. Here's the decision guide I'd actually give a team.</em></p>
+<h2>The one-screen summary</h2>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Dragonfly</th>
+<th>Redis / Valkey Cluster</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Throughput, normal client</strong></td>
+<td><strong>~3.4× the cluster</strong> (15.5M vs 4.6M @48c)</td>
+<td>plateaus early; more shards don't help a naive client</td>
+</tr>
+<tr>
+<td><strong>Throughput, perfectly driven</strong></td>
+<td>15.5M (that <em>is</em> driven — one endpoint)</td>
+<td><strong>raw ceiling wins: ~40M</strong> — but needs per-shard routing + a client as big as the server</td>
+</tr>
+<tr>
+<td><strong>Effort to reach its throughput</strong></td>
+<td>trivial (one-line client)</td>
+<td>serious client-side engineering + client hardware</td>
+</tr>
+<tr>
+<td><strong>Latency under load</strong></td>
+<td>sub-ms, predictable</td>
+<td>sub-ms <em>if</em> driven well; hundreds of ms with a naive client</td>
+</tr>
+<tr>
+<td><strong>Multi-key / transactions / Lua</strong></td>
+<td>works across the whole keyspace on one node</td>
+<td>same-slot only (hash-tag tax)</td>
+</tr>
+<tr>
+<td><strong>Memory / key</strong></td>
+<td>~13% leaner</td>
+<td>baseline</td>
+</tr>
+<tr>
+<td><strong>Failure domain / HA</strong></td>
+<td>bigger blast radius per node; has replicas + cluster</td>
+<td><strong>smaller shards = smaller blast radius</strong>, mature, elastic</td>
+</tr>
+<tr>
+<td><strong>Governance / licensing</strong></td>
+<td>source-available (BSL)</td>
+<td>Redis 8 tri-licensed (incl. AGPL); <strong>Valkey = BSD, Linux Foundation</strong></td>
+</tr>
+</tbody>
+</table>
+<h2>The three-way trade-off</h2>
+<p>Every &quot;which is best&quot; argument is really about which of these three you're optimizing — you rarely get all three:</p>
+<ol>
+<li><strong>Throughput-per-node</strong> — most work out of one box.</li>
+<li><strong>Operational simplicity</strong> — fewest moving parts, no cross-slot data modeling, a dumb client.</li>
+<li><strong>Failure domain / elasticity</strong> — small blast radius, easy incremental scale-out, mature HA.</li>
+</ol>
+<p>Dragonfly wins <strong>1 and 2</strong> decisively for the single-big-node case. Redis/Valkey Cluster wins <strong>3</strong>, and wins <strong>1</strong> <em>only</em> if you'll invest to drive it. That's the whole map.</p>
+<h2>Pick by scenario</h2>
+<p><strong>Reach for Dragonfly when…</strong></p>
+<ul>
+<li>you want a lot of throughput from one node with a <strong>normal client and minimal ops</strong> — the common case, where it's ~3.4× a realistic cluster;</li>
+<li>you need <strong>multi-key ops / transactions / Lua across arbitrary keys</strong> while using all your cores;</li>
+<li>you'd rather <strong>scale up than operate a cluster</strong>, and pair one big node with a replica for HA;</li>
+<li>you're memory-sensitive on <strong>many-small-keys</strong> workloads.</li>
+</ul>
+<p><strong>Reach for Redis / Valkey Cluster when…</strong></p>
+<ul>
+<li>you need <strong>maximum raw throughput</strong> and can invest in <strong>flawless client-side routing + a large client fleet</strong> (the 40M ceiling is real if you'll pay for it);</li>
+<li>you want <strong>small failure domains and elastic horizontal scale</strong> — many modest shards + replicas, so losing one shard blips 1/N of the keyspace;</li>
+<li>you've <strong>outgrown a single big machine</strong> (at which point Dragonfly would shard too, and hit the same cross-slot wall);</li>
+<li>you want the <strong>most mature, battle-tested</strong> clustering, or a specific <strong>license</strong> (Valkey's BSD / Linux Foundation governance is a real reason on its own).</li>
+</ul>
+<p><strong>Valkey vs Redis specifically:</strong> performance is a wash (Valkey is the Redis 7.2 fork; both are multi-threaded-I/O now). Choose on <strong>governance and licensing</strong>, not benchmarks.</p>
+<h2>The honest one-liner</h2>
+<blockquote>
+<p><strong>Redis Cluster has the higher raw ceiling; Dragonfly gives you most of the throughput for almost none of the operational cost. If you can engineer for the ceiling, take it. If you'd rather not, Dragonfly is the better default — and for a single big node with a normal client, it isn't close.</strong></p>
+</blockquote>
+<h2>What I'd do</h2>
+<p>For a new service that fits comfortably on one large node — which is <em>most</em> services — I'd start with <strong>Dragonfly</strong>: near-top throughput, sub-ms latency, full multi-key semantics, less memory, and a client I don't have to think about. I'd move to a <strong>cluster</strong> (Dragonfly's or Redis/Valkey's) when I genuinely outgrow one machine or need small failure domains for HA — and I'd go in knowing the cross-slot tax and the client-side engineering that &quot;using the cluster's throughput&quot; actually requires.</p>
+<hr />
+<p><em>That's the series. Everything — the harness, pinned versions, raw <code>runs.csv</code>, and the analysis scripts — is public so you can rerun and challenge all of it. Verified against DragonflyDB founder Oded Poncz's benchmarking notes before publishing; the fairness methodology (and the bias I caught in my own setup) is in <a href="/blog/dragonfly-redis-valkey-benchmark-methodology">Part 1</a>.</em></p>
+<p><em>Benchmarked on AWS <code>c7i.metal-24xl</code> (48 physical Sapphire Rapids cores) + <code>c7i.24xlarge</code> client, us-east-1, same placement group. Redis 8.2.8 · Valkey 8.1.9 · Dragonfly v1.40.1 · memtier 2.5.1 · io_uring · client-side latency.</em></p>

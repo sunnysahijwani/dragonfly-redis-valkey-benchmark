@@ -1,0 +1,66 @@
+<h1>I benchmarked Dragonfly vs Redis vs Valkey. First, let me show you how I kept it honest.</h1>
+<p><strong>Part 1 of 7</strong> · <a href="/blog/dragonfly-vs-redis-valkey-benchmark">Series index</a> · <a href="/blog/dragonfly-vs-redis-throughput-scaling">Next: Throughput &amp; scaling →</a></p>
+<p><img src="/assets/images/blog/dragonfly-benchmark/01-methodology.png" alt="Three configurations measured at 48 cores: Dragonfly 15.5M, Redis cluster realistic 4.6M, Redis cluster fully-driven 40.6M ops/s" /></p>
+<p><em>Part 1 of a series. This post has no throughput charts — on purpose. Before I show you a single number, I want to show you the traps that make most in-memory benchmarks lie, and exactly how I disarmed each one. If the method isn't fair, the numbers aren't worth reading.</em></p>
+<hr />
+<h2>The uncomfortable truth about database benchmarks</h2>
+<p>Almost every &quot;X is 25× faster than Y&quot; benchmark you've seen is rigged — usually not maliciously, just carelessly. The author picks a setup that happens to flatter one engine, runs it once, and publishes the number. The most common way it goes wrong is subtle: <strong>the benchmark measures the client, or the virtual machine, or a cache-miss path — anything except the database it claims to measure.</strong></p>
+<!-- TODO before publishing: get Oded's explicit OK to mention him by name (mention, NOT tag). Confirm exact name spelling with Sunny. -->
+<p>So when Oded, DragonflyDB's founder, reached out with notes on how to benchmark Dragonfly fairly, I took it as a challenge to do this properly — and to publish my methodology <em>before</em> my results, so you can attack the method first.</p>
+<p>Here's the question I'm actually answering:</p>
+<blockquote>
+<p><strong>On one server, using all its CPU cores, how much load can each engine sustain — and what does each one cost you in operational complexity to get there?</strong></p>
+</blockquote>
+<p>That &quot;one server, all cores&quot; framing matters, and it's where the first trap hides.</p>
+<h2>Trap 1: &quot;single process vs single process&quot; is not the fair fight</h2>
+<p>Redis executes commands on <strong>one thread</strong>. Since Redis 6 it can use extra threads for network I/O, but the actual data work — the part that matters — still runs on a single core. Valkey is the same shape. Dragonfly, by contrast, is <strong>multi-threaded by design</strong>: one process that uses every core you give it.</p>
+<p>So if I put one Dragonfly process (48 cores) next to one Redis process (1 core of real work) and shout &quot;Dragonfly wins!&quot;, I've told you nothing except that 48 &gt; 1. That's the rigged benchmark I refuse to publish.</p>
+<p><strong>To use all the cores of one box, Redis has to be <em>sharded</em> into a cluster</strong> — many <code>redis-server</code> processes on the same machine, each owning a slice of the keyspace. So the fair fight is:</p>
+<ul>
+<li><strong>one Dragonfly process</strong> (uses the whole box), versus</li>
+<li><strong>a Redis/Valkey cluster of N shards</strong> (also uses the whole box).</li>
+</ul>
+<p>Same machine. Same cores. Same goal: saturate the node. That's apples to apples. Single-process Redis stays in my tests only as a <em>labelled baseline</em>, never as the comparison.</p>
+<h2>Trap 2: how many shards? (the small version of the big trap)</h2>
+<p>Once you agree the fair peer is a Redis cluster, a new question appears: <strong>how many shards?</strong> Too few and Redis can't use the cores; too many and they thrash. Rather than guess, I swept shard counts — and one shard per physical core turned out to be about right on this hardware.</p>
+<p>That was the <em>easy</em> version. The nasty one was realising I couldn't even <strong>drive</strong> the cluster hard enough to measure what it could do — which is the trap that nearly wrecked the whole benchmark.</p>
+<h2>Trap 3: the client was the real bottleneck</h2>
+<p>This is the big one, and it's why so many benchmarks are worthless.</p>
+<p>A benchmark has <em>two</em> machines doing work: the database (server) and the load generator (client). Throughput is capped by whichever runs out of CPU <strong>first</strong>. If the client maxes out before the server does, then every engine flatlines at the <em>client's</em> ceiling — and they all look identical, even if one is twice as fast. You've benchmarked your load generator.</p>
+<p>The fix: make the client <strong>more powerful than the server</strong>, put it on a <strong>separate machine</strong>, and then <em>prove</em> it wasn't the limit. My harness ramps the load up step by step and records <strong>both</strong> server and client CPU. At the throughput plateau I check who's saturated:</p>
+<ul>
+<li><strong>server maxed, client has headroom</strong> → server-bound → the number is real.</li>
+<li><strong>client maxed, server has headroom</strong> → client-bound → throw it out, get a bigger client.</li>
+</ul>
+<p>If I can't show you which side was the ceiling, I won't show you the number.</p>
+<p>And here's where it got genuinely surprising. Even with a big, separate client, a <em>single</em> cluster-mode client couldn't saturate a 48-shard cluster — the shards sat ~16% busy while the client thrashed on routing. I was about to report <strong>~4.6M ops/s</strong> as &quot;the cluster's throughput&quot; when the same cluster, driven correctly (one dedicated client per shard), does <strong>~40M</strong>. Reporting either number alone is a lie: 4.6M sandbags Redis; 40M pretends everyone routes perfectly with unlimited client hardware.</p>
+<p>So I report the cluster <strong>two ways</strong> — what a normal client actually gets, <em>and</em> the fully-driven ceiling — and let you see the gap. That gap turned out to be the most interesting finding in the whole study, and it gets <a href="/blog/redis-cluster-saturation-problem">its own post</a>.</p>
+<h2>Trap 4: I was benchmarking cache <em>misses</em></h2>
+<p>When I first ran it, ~72% of my reads were <strong>misses</strong> — I was reading random keys from a database that was mostly empty, so I was measuring the &quot;key not found&quot; path, which is cheaper and meaningless. Fixed by <strong>pre-loading the full keyspace</strong> before every read-heavy run. Now every run reports its hit rate, and I only trust runs where reads actually hit real data.</p>
+<h2>Keeping the engines truly identical</h2>
+<p>Small asymmetries add up, so every engine gets the exact same treatment: persistence off, identical memory limit, no eviction, same value sizes, same request mix, same pipeline depths. Where one engine needed a special flag, I applied the equivalent to all three rather than to one. And I made each engine's &quot;no persistence, no eviction&quot; settings <strong>explicit</strong> — verified from the docs, not assumed from defaults. Every knob a run used is recorded in the results row, so any number is fully reproducible.</p>
+<p>A concrete example of that care, because it changed the numbers: on a fresh cloud box, Docker's default security profile silently blocked Dragonfly's <strong><code>io_uring</code></strong> and dropped it to a slower I/O path — which would have quietly handicapped Dragonfly. I gave it back its native <code>io_uring</code> (Redis and Valkey use their native <code>epoll</code>), so <strong>each engine runs on its own best path</strong> rather than one being crippled by an environment quirk. That's the difference between a fair test and an accidental hit piece.</p>
+<h2>The honesty guard I'll hold all series long</h2>
+<p>It would be easy — and wrong — to claim &quot;Dragonfly has no sharding limitations.&quot; It does. <strong>Dragonfly Cluster, once you scale it across machines, uses the same 16,384-hash-slot model as Redis and hits the same limits.</strong> Dragonfly's real advantage is narrower and more honest:</p>
+<blockquote>
+<p><strong>To make Redis use your whole server you must cluster it, and clustering costs you cross-key freedom. Dragonfly gives you the cores without that cost — so you postpone clustering until you truly outgrow one big machine.</strong></p>
+</blockquote>
+<p>Not &quot;never.&quot; <em>Later.</em> That's the claim, and I'll keep it precise even when a punchier overstatement would get more clicks.</p>
+<h2>What one laptop can and can't tell you</h2>
+<p>I built and validated the whole harness on a laptop — but I won't publish speed numbers from it, and you should distrust anyone who does. Under a virtual machine, CPU pinning isn't real, cores aren't uniform, and the hypervisor injects timing noise. My own ramp test proved it: at the throughput plateau, <em>neither</em> the server nor the client was CPU-saturated — the ceiling was the virtualization layer itself.</p>
+<p>So the split is:</p>
+<ul>
+<li><strong>Hardware-independent results</strong> (how the engines <em>behave</em> — cross-slot rules, memory-per-key) I can and will show from anywhere.</li>
+<li><strong>Performance results</strong> (throughput, latency, scaling) come only from <strong>bare metal</strong>: an AWS <code>c7i.metal-24xl</code> server (48 physical Sapphire Rapids cores, no hypervisor), a separate over-provisioned <code>c7i.24xlarge</code> client, same availability zone and placement group — real cores, real pinning, a network I control. That's the setup the next posts run on.</li>
+</ul>
+<h2>What's coming</h2>
+<ul>
+<li><strong>Throughput per node</strong> — the fair fight, across read/write mixes and pipeline depths.</li>
+<li><strong>Core scaling</strong> — what happens from 4 to 48 cores.</li>
+<li><strong>Latency under load</strong> — the tail (p99, p99.9), not just averages.</li>
+<li><strong>Memory efficiency</strong> — bytes per key.</li>
+<li><strong>Operational simplicity</strong> — cross-slot, hash tags, Lua and transactions: the real cost of a cluster.</li>
+<li><strong>When to use which</strong> — a decision guide, because (spoiler) there is no universal winner.</li>
+</ul>
+<p>The full harness — scripts, pinned versions, raw results — will be public, so you can rerun everything and check my work. That's the whole point.</p>
+<p><em>Next: the throughput numbers, on real hardware, with the receipts.</em></p>

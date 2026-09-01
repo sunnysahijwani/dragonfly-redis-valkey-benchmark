@@ -1,0 +1,13 @@
+================ Dragonfly (single process) ================
+  MGET 3 plain keys:           OK -> 1 2 3 
+  EVAL over 3 plain keys:      OK -> 3 
+  MGET 2 hash-tagged keys:     OK -> a b 
+
+================ Redis Cluster (3 shards) ================
+  slots: alpha=865 bravo=8623 charlie=1769 
+  MGET 3 plain keys:           REJECTED -> CROSSSLOT Keys in request don't hash to the same slot  
+  EVAL over 3 plain keys:      REJECTED -> CROSSSLOT Keys in request don't hash to the same slot  
+  MGET 2 hash-tagged keys:     OK -> a b 
+
+[0;36m[bench][0m DF: every multi-key op just works. Cluster: plain cross-slot keys REJECTED;
+[0;36m[bench][0m only hash-tagged {same-slot} keys work — that constraint is the app's cost.

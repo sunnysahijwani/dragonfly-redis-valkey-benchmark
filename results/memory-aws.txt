@@ -1,0 +1,8 @@
+Loading 1000000 keys x 100B into each engine, then reading used_memory...
+
+engine          used_memory      bytes/key       keys
+---------------------------------------------------------
+dragonfly         147207200          146.1    1000000
+redis             166911048          165.3    1000000
+valkey            169790032          168.7    1000000
+(bytes/key = (used_memory - empty_baseline) / distinct_keys)

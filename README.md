@@ -4,9 +4,9 @@ A methodology-first throughput/latency/memory benchmark of **Dragonfly**, **Redi
 and **Valkey** on **48 real bare-metal cores** — with the harness, pinned versions,
 and raw data so you can rerun and challenge every number.
 
-📖 **Full write-up (7-part series):** https://two-techies.com/blog/dragonfly-vs-redis-valkey-benchmark *(replace with your live URL)*
+📖 **Full write-up (7-part series):** https://two-techies.com/blog/dragonfly-vs-redis-valkey-benchmark
 
-![Throughput vs cores: Dragonfly climbs smoothly to 15.5M, a realistic Redis cluster plateaus at ~5M, the fully-driven cluster ceiling scales to 40M](blog/images/02-scaling.png)
+![Throughput vs cores: Dragonfly climbs smoothly to 15.5M, a realistic Redis cluster plateaus at ~5M, the fully-driven cluster ceiling scales to 40M](images/02-scaling.png)
 
 ## The headline (48 cores, read-heavy, pipelined)
 
@@ -59,9 +59,9 @@ bash scripts/run-phase-a.sh
 # 3. two-box run (server + client, bare metal): see PHASE-B-RUNBOOK.md
 # 4. the fully-driven cluster ceiling:
 bash scripts/cluster-saturate.sh redis <server-ip> 7001 <shards>
-# 5. regenerate the analysis + charts from the raw data:
+# 5. regenerate the analysis tables from the raw data:
 python3 analysis/analyze-aws.py     # tables -> results/FINDINGS.md
-python3 analysis/make-charts.py      # charts -> blog/images/
+#    (the charts in images/ are pre-rendered; every number is re-derivable here)
 ```
 
 ## Repo layout
@@ -69,18 +69,17 @@ python3 analysis/make-charts.py      # charts -> blog/images/
 ```
 config.env             all knobs (pinned image digests, cores, workload matrix)
 scripts/               the harness (up / bench / cluster-saturate / ramp / run-2box …)
-analysis/              parse + report + charts from runs.csv
+analysis/              parse + report tables from runs.csv
 results/
   runs-aws.csv         the raw capture (350 runs) — re-derive everything from this
   FINDINGS.md          analysis tables
   memory-aws.txt       bytes/key
   crossslot-aws.txt    the cross-slot operational demo
 PHASE-B-RUNBOOK.md     exact AWS two-box setup
-blog/                  the write-up (Markdown) + charts
+images/                the result charts (PNG)
 ```
 
 ## Credits & license
 
-Benchmarking notes and a fairness sanity-check from **DragonflyDB founder Oded Poncz**
-(who reviewed the approach before publication). Harness released under the **MIT License**.
+Benchmarking notes from **the DragonflyDB team** helped shape the approach. Harness released under the **MIT License**.
 Rerun it, break it, tell me where I'm wrong — that's the point.

@@ -1,14 +1,12 @@
-# ── Blog write-up stays on the site (canonical), NOT duplicated in the repo ──
-# Keeps SEO/traffic on two-techies.com and separates "proof" (this repo) from
-# "narrative" (the site). This also covers the private files (OUTREACH-ODED.md,
-# PUBLISHING-PLAN.md, 00-linkedin-anchor.md) since they're all *.md.
-blog/*.md
-blog/html/                   # CMS-rendered HTML
-# NOTE: blog/images/ (the charts) is intentionally KEPT — the README uses them
-#       and images aren't indexed article text, so no duplication problem.
-
-# ── Site-specific / not part of the reproducible benchmark ──────────────
-analysis/render-html.php     # hardcoded path to a local Laravel vendor/
+# ── Secrets / credentials (defensive — never commit these) ──────────────
+# config.env is intentionally tracked (it holds only knobs + pinned digests,
+# no secrets). These patterns stop an accidental `git add .` leaking keys.
+*.pem
+*.key
+.env
+.env.*
+*credentials*
+*.crt
 
 # ── Local/Mac test artifacts (superseded by results/runs-aws.csv) ───────
 results/runs.csv

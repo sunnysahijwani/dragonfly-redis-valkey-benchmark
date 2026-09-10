@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Start ONE engine in single-node mode, pinned + persistence off.
-# Usage: up.sh <redis|valkey|dragonfly>
+# Usage: up.sh <redis|valkey|dragonfly|keydb|garnet>
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-engine="${1:?usage: up.sh <redis|valkey|dragonfly>}"
+engine="${1:?usage: up.sh <redis|valkey|dragonfly|keydb|garnet>}"
 ensure_net
 rm_container "eng"
 
@@ -42,6 +42,27 @@ case "$engine" in
       dragonfly --logtostderr --proactor_threads="$SERVER_THREADS" \
         --maxmemory="$MAXMEMORY" --dbnum=1 \
         --cache_mode=false --snapshot_cron='' --dbfilename=''
+    ;;
+  keydb)
+    # KeyDB = multithreaded Redis 6 fork. --server-threads are REAL execution
+    # threads (unlike Redis --io-threads which are I/O only), so this is the
+    # closest architectural peer to DF's proactor_threads. Same parity flags
+    # as Redis: persistence off, noeviction.
+    docker run -d "${common_pin[@]}" "$IMG_KEYDB" \
+      keydb-server --save '' --appendonly no \
+        --maxmemory "$MAXMEMORY" --maxmemory-policy noeviction \
+        --server-threads "$SERVER_THREADS" --protected-mode no
+    ;;
+  garnet)
+    # Garnet (Microsoft, .NET). Parity verified from `GarnetServer --help` 2.1.6:
+    #   persistence OFF by default (no AOF/checkpoint unless enabled) — parity.
+    #   -m expects "4g" style sizes, NOT "4gb" -> strip the trailing 'b'.
+    #   NO thread-count flag in 2.1.6: the .NET thread pool auto-scales, so the
+    #   cpuset pin is the ONLY core limiter (SERVER_THREADS not passed — note
+    #   this in any per-thread comparison; scaling is by cores, not threads).
+    #   Binds any address, NoAuth by default; epoll natively (like Redis).
+    docker run -d "${common_pin[@]}" "$IMG_GARNET" \
+      --port 6379 -m "${MAXMEMORY%b}" -i 256m
     ;;
   *) die "unknown engine: $engine" ;;
 esac

@@ -14,7 +14,12 @@ printf -- '---------------------------------------------------------\n'
 
 mem_used() { rcli "$EH" 6379 info memory 2>/dev/null | awk -F: '/^used_memory:/{print $2}' | tr -d '\r'; }
 
-for engine in dragonfly redis valkey; do
+# Garnet is EXCLUDED deliberately: it does not report used_memory (INFO shows
+# .NET gc_heap_bytes + pre-allocated log targets), and its log-structured store
+# pre-allocates memory up front — used-memory-after-load does not measure
+# per-key cost the way it does for the RESP forks. A fair Garnet memory story
+# needs its own methodology; do not bolt it onto this one.
+for engine in ${MEMORY_ENGINES:-dragonfly redis valkey keydb}; do
   bash "$HERE/up.sh" "$engine" >/dev/null
   base=$(mem_used)   # empty-server baseline, subtracted out
   # Single client, sequential keys 1..N => exactly N distinct keys (no overwrite).

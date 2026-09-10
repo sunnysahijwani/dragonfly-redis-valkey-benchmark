@@ -16,6 +16,13 @@ results/dress-rehearsal.log
 results/*.json
 results/.cluster-entry
 
+# ── PRIVATE: go-redis collaboration data (unreleased feature, Nedyalko) ──
+# Do NOT publish until the go-redis autopipeline feature ships or he OKs it.
+# The explorer hides its go-redis chart automatically when this file is absent,
+# so the deployed/public explorer stays clean without code changes.
+results/runs-goredis.csv
+results/goredis-json/
+
 # ── cruft ───────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc

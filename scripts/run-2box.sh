@@ -76,14 +76,17 @@ run_config() {
 if [ "${1:-}" = "sweep" ]; then
   : "${SCALE:=4 8 16 24 48}"
   : "${ENGINES:=dragonfly:single redis:cluster valkey:cluster}"
-  export RUN_ID="$(date +%Y%m%d-%H%M%S)"
+  export RUN_ID="${RUN_ID:-$(date +%Y%m%d-%H%M%S)}"   # respect caller's RUN_ID (continuations)
   preflight
   log "SWEEP RUN_ID=$RUN_ID | scale='$SCALE' | engines='$ENGINES'"
   for cores in $SCALE; do
     cpus="0-$((cores-1))"   # ⚠️ verify these map to REAL physical cores (lscpu -e)
     export RUN_NOTE="scale-${cores}c"
     for spec in $ENGINES; do
-      run_config "${spec%%:*}" "${spec##*:}" "$cores" "$cpus"
+      # || true: a failed config (e.g. an engine that can't start at this thread
+      # count) must SKIP, not kill the sweep — run_config's return 1 + set -e
+      # aborted the whole sweep otherwise (bit us: keydb refuses >16 threads).
+      run_config "${spec%%:*}" "${spec##*:}" "$cores" "$cpus" || warn "skipped $spec @ ${cores}c"
     done
   done
   log "sweep done. Results in results/runs.csv (RUN_ID=$RUN_ID). Report: python3 analysis/report.py"

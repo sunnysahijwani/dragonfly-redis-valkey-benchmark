@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dragonfly vs Redis vs Valkey — Interactive Benchmark Explorer</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #171e2e; --panel2: #1d2638; --line: #2a3550;
+    --text: #dce3f0; --muted: #8b96ad; --accent: #4c9be8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif; padding: 18px 22px 40px; }
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+  h1 { font-size: 20px; font-weight: 650; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  #resetBtn { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; font-size: 13px; cursor: pointer; }
+  #resetBtn:hover { filter: brightness(1.1); }
+  #f-dataset { margin-left: auto; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+  #caveat { background: #3a2d18; border: 1px solid #8a6d3b; color: #e8c987; border-radius: 8px; padding: 8px 14px; font-size: 12.5px; margin-bottom: 14px; }
+
+  #filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 16px; }
+  .fgroup { display: flex; flex-direction: column; gap: 6px; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px 10px; }
+  .fgroup > label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+  .mchip { font-size: 10px; font-weight: 600; border: 1px solid var(--muted); border-radius: 4px; padding: 0 5px; color: var(--muted); line-height: 15px; flex: none; }
+  .checks { display: flex; gap: 10px; flex-wrap: wrap; }
+  .checks label { display: flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  select { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 13px; }
+  input[type=checkbox] { accent-color: var(--accent); }
+
+  #kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+  .kpi .k-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .kpi .k-value { font-size: 24px; font-weight: 700; margin: 2px 0; }
+  .kpi .k-detail { font-size: 12px; color: var(--muted); }
+
+  #grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px 6px; }
+  .card h2 { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .card .desc { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .card .opts { float: right; font-size: 12px; color: var(--muted); }
+  .chart { width: 100%; height: 320px; }
+  @media (max-width: 980px) { #grid { grid-template-columns: 1fr; } }
+
+  #loader { text-align: center; padding: 60px 20px; color: var(--muted); }
+  #loader input { margin-top: 12px; }
+  footer { margin-top: 22px; color: var(--muted); font-size: 12px; }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Dragonfly vs Redis vs Valkey — Benchmark Explorer</h1>
+  <span class="sub">48-core c7i.metal-24xl · client-side latency · medians across reps</span>
+  <select id="f-dataset" title="Dataset"></select>
+  <button id="resetBtn">Reset to headline view</button>
+</header>
+<div id="caveat" style="display:none"></div>
+
+<div id="loader">Loading <code>results/runs-aws.csv</code>…</div>
+
+<div id="app" style="display:none">
+  <div id="filters">
+    <div class="fgroup"><label>Engine</label><div class="checks" id="f-engine"></div></div>
+    <div class="fgroup"><label>Mode</label><div class="checks" id="f-mode"></div></div>
+    <div class="fgroup"><label>Workload</label><select id="f-ratio"></select></div>
+    <div class="fgroup"><label>Value size</label><select id="f-data"></select></div>
+    <div class="fgroup"><label>Pipeline</label><select id="f-pipe"></select></div>
+    <div class="fgroup"><label>Cores (bar charts &amp; KPIs)</label><select id="f-cores"></select></div>
+    <div class="fgroup"><label>Scale</label><div class="checks"><label><input type="checkbox" id="f-log"> log throughput axes</label></div></div>
+  </div>
+
+  <div id="kpis">
+    <div class="kpi"><div class="k-label">Peak throughput</div><div class="k-value" id="kpi-tp">–</div><div class="k-detail" id="kpi-tp-d">–</div></div>
+    <div class="kpi"><div class="k-label">Best p99 latency</div><div class="k-value" id="kpi-p99">–</div><div class="k-detail" id="kpi-p99-d">–</div></div>
+    <div class="kpi"><div class="k-label">Best per-core efficiency</div><div class="k-value" id="kpi-eff">–</div><div class="k-detail" id="kpi-eff-d">–</div></div>
+  </div>
+
+  <div id="grid">
+    <div class="card"><h2>Throughput scaling</h2><div class="desc">ops/s vs server cores — the headline curves (cores filter not applied here)</div><div class="chart" id="c-scaling"></div></div>
+    <div class="card"><h2>Latency percentiles</h2><div class="desc">client-side p50 / p99 / p99.9 at selected core count (log ms scale)</div><div class="chart" id="c-latency"></div></div>
+    <div class="card"><h2>Per-core efficiency</h2><div class="desc">ops per server core vs cores — is it magic, or just using cores well?</div><div class="chart" id="c-efficiency"></div></div>
+    <div class="card"><h2>Pipeline effect</h2><div class="desc">no pipelining vs depth 16 at selected core count (pipeline filter not applied here)</div><div class="chart" id="c-pipeline"></div></div>
+    <div class="card"><h2>Value-size effect</h2><div class="desc">100 B vs 1 KB at selected core count — gaps compress when the network takes over (value-size filter not applied here)</div><div class="chart" id="c-datasize"></div></div>
+    <div class="card"><h2>Run health</h2><div class="desc">minimum hit rate and connection errors behind every plotted point</div><div class="chart" id="c-health"></div></div>
+    <div class="card" id="card-goredis" style="display:none"><h2>go-redis autopipeline sweep — 48 shards</h2><div class="desc">ops/s by worker shape (workers × in-flight each); dashed lines = same-day memtier references. Fixed 1:10 / 100 B / p16-equivalent; main filters don't apply here</div><div class="chart" id="c-goredis"></div></div>
+  </div>
+
+  <footer>
+    Data: <a href="results/runs-aws.csv">runs-aws.csv</a> (350 runs, AWS c7i.metal-24xl server + c7i.24xlarge client, Sep 2026) ·
+    Harness &amp; methodology: <a href="https://github.com/sunnysahijwani/dragonfly-redis-valkey-benchmark">github.com/sunnysahijwani/dragonfly-redis-valkey-benchmark</a> ·
+    Full write-up: <a href="https://two-techies.com/blog/dragonfly-vs-redis-valkey-benchmark">7-part blog series</a>
+  </footer>
+</div>
+
+<script>
+'use strict';
+
+/* ---------- series identity & display ---------- */
+const SERIES_META = {
+  'dragonfly|single':      { label: 'Dragonfly (single process)', short: 'DF single', color: '#e4572e' },
+  'redis|cluster':         { label: 'Redis Cluster (realistic client)', short: 'Redis realistic', color: '#4c9be8' },
+  'redis|cluster-sat':     { label: 'Redis Cluster (fully driven ceiling)', short: 'Redis ceiling', color: '#1b5fa8' },
+  'valkey|cluster':        { label: 'Valkey Cluster (realistic client)', short: 'Valkey realistic', color: '#7ac74f' },
+  'valkey|cluster-sat':    { label: 'Valkey Cluster (fully driven ceiling)', short: 'Valkey ceiling', color: '#3e8914' },
+  'keydb|single':          { label: 'KeyDB (multithreaded fork)', short: 'KeyDB', color: '#d4a017' },
+  'garnet|single':         { label: 'Garnet (Microsoft, .NET)', short: 'Garnet', color: '#b07cc6' },
+};
+const ENGINE_COLORS = { dragonfly: '#e4572e', redis: '#4c9be8', valkey: '#7ac74f', keydb: '#d4a017', garnet: '#b07cc6' };
+const MODE_CHIPS = { single: '1×', cluster: 'N×', 'cluster-sat': 'N×⚡' };
+const seriesShort = k => (SERIES_META[k] || { short: k }).short;
+const seriesKey = r => r.engine + '|' + r.mode;
+const seriesLabel = k => (SERIES_META[k] || { label: k }).label;
+const seriesColor = k => (SERIES_META[k] || { color: '#c39bd3' }).color;
+
+const RATIO_LABELS = { '1:10': 'read-heavy 1:10', '1:1': 'balanced 1:1', 'mget10': 'MGET ×10 keys', 'mset10': 'MSET ×10 keys' };
+
+const HEADLINE = { engines: null, modes: null, ratio: '1:10', data: '100', pipe: '16', cores: '48', log: false };
+
+/* ---------- datasets: never silently mix captures made on different clients --- */
+const DATASETS = {
+  'dragonfly-redis-valkey': {
+    label: 'Dragonfly vs Redis vs Valkey — published capture (Sep 1)',
+    file: 'results/runs-aws.csv',
+    keep: r => true,
+    caveat: null,
+    goredis: false,
+  },
+  'keydb-garnet-benchmark': {
+    label: 'KeyDB vs Garnet (Microsoft) + go-redis client — session (Sep 9)',
+    file: 'results/runs-session2-aws.csv',
+    keep: r => (r.run_id || '').startsWith('20260909-'),   // drop Mac-history rows
+    caveat: '⚠️ Sep 9 session: client was c7a.24xlarge (AMD) with no placement group — ' +
+            'c7i had no capacity that evening. References moved vs the published Sep 1 capture ' +
+            '(realistic 6.9M vs 4.6M, ceiling 31.5M vs 40.6M), so the two datasets are NOT ' +
+            'directly comparable. All comparisons here are within-session: same day, same boxes.',
+    goredis: 'results/runs-goredis.csv',
+  },
+};
+
+/* ---------- state ---------- */
+let ROWS = [];            // raw parsed rows
+let AGG = [];             // median-aggregated rows
+let GR = [];              // go-redis aggregated rows (private file; empty when absent)
+let charts = {};          // echarts instances
+const state = { engines: new Set(), modes: new Set(), ratio: '1:10', data: '100', pipe: '16', cores: '48', log: false, dataset: 'dragonfly-redis-valkey' };
+
+/* ---------- csv ---------- */
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  const head = lines[0].split(',');
+  return lines.slice(1).map(line => {
+    const cells = line.split(',');
+    const r = {};
+    head.forEach((h, i) => r[h] = cells[i] === undefined ? '' : cells[i]);
+    return r;
+  }).filter(r => r.engine && parseFloat(r.ops_per_sec) > 0); // drop malformed / not-run rows
+}
+
+function median(vals) {
+  const s = [...vals].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+/* collapse reps: median of numeric fields per (engine,mode,cores,ratio,data,pipe) */
+function aggregate(rows) {
+  const NUM = ['ops_per_sec', 'ops_per_core', 'p50_ms', 'p99_ms', 'p999_ms', 'hit_rate', 'kb_per_sec', 'conn_errors'];
+  const groups = new Map();
+  for (const r of rows) {
+    const k = [r.engine, r.mode, r.cores_used, r.ratio, r.data_bytes, r.pipeline].join('|');
+    (groups.get(k) || groups.set(k, []).get(k)).push(r);
+  }
+  const out = [];
+  for (const g of groups.values()) {
+    const a = { engine: g[0].engine, mode: g[0].mode, cores: +g[0].cores_used, ratio: g[0].ratio, data: g[0].data_bytes, pipe: g[0].pipeline, reps: g.length };
+    for (const f of NUM) a[f] = median(g.map(r => parseFloat(r[f]) || 0));
+    a.min_hit_rate = Math.min(...g.map(r => parseFloat(r.hit_rate) || 0));
+    a.total_errors = g.reduce((s, r) => s + (parseInt(r.conn_errors) || 0), 0);
+    out.push(a);
+  }
+  return out;
+}
+
+/* ---------- formatting ---------- */
+const fmtOps = v => v >= 1e6 ? (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(0) + 'k' : String(Math.round(v));
+const fmtMs = v => v >= 100 ? v.toFixed(0) + ' ms' : v >= 1 ? v.toFixed(1) + ' ms' : (v * 1000).toFixed(0) + ' µs';
+
+/* ---------- filtering helpers ---------- */
+function filtered({ ignoreCores = false, ignorePipe = false, ignoreData = false } = {}) {
+  return AGG.filter(a =>
+    state.engines.has(a.engine) && state.modes.has(a.mode) &&
+    a.ratio === state.ratio &&
+    (ignoreData || a.data === state.data) &&
+    (ignorePipe || a.pipe === state.pipe) &&
+    (ignoreCores || String(a.cores) === state.cores));
+}
+function activeSeriesKeys(rows) {
+  const present = new Set(rows.map(seriesKey));
+  return Object.keys(SERIES_META).filter(k => present.has(k))
+    .concat([...present].filter(k => !SERIES_META[k]).sort());
+}
+
+/* ---------- chart plumbing ---------- */
+const BASE = {
+  backgroundColor: 'transparent', textStyle: { color: '#dce3f0' },
+  grid: { left: 64, right: 16, top: 58, bottom: 30 },
+  legend: { textStyle: { color: '#8b96ad', fontSize: 11 }, top: 0, type: 'scroll' },
+  tooltip: { trigger: 'axis', backgroundColor: '#1d2638', borderColor: '#2a3550', textStyle: { color: '#dce3f0', fontSize: 12 } },
+};
+const axis = (extra = {}) => Object.assign({ axisLine: { lineStyle: { color: '#2a3550' } }, axisLabel: { color: '#8b96ad' }, splitLine: { lineStyle: { color: '#222c44' } } }, extra);
+
+function draw(id, option, empty) {
+  const el = document.getElementById(id);
+  charts[id] = charts[id] || echarts.init(el);
+  charts[id].clear();
+  if (empty) {
+    charts[id].setOption({ title: { text: 'No data for the current filter combination', left: 'center', top: 'middle', textStyle: { color: '#8b96ad', fontSize: 13, fontWeight: 400 } } });
+    return;
+  }
+  charts[id].setOption(Object.assign({}, BASE, option));
+}
+
+/* ---------- individual charts ---------- */
+function lineByCores(id, field, name) {
+  const rows = filtered({ ignoreCores: true });
+  const keys = activeSeriesKeys(rows);
+  const coreLevels = [...new Set(rows.map(a => a.cores))].sort((x, y) => x - y);
+  const series = keys.map(k => ({
+    name: seriesLabel(k), type: 'line', symbolSize: 7, lineStyle: { width: 2.5 }, itemStyle: { color: seriesColor(k) },
+    data: coreLevels.map(c => { const a = rows.find(r => seriesKey(r) === k && r.cores === c); return a ? +a[field].toFixed(1) : null; }),
+    connectNulls: true,
+  })).filter(s => s.data.some(v => v !== null));
+  draw(id, {
+    xAxis: axis({ type: 'category', name: 'server cores', nameLocation: 'middle', nameGap: 24, data: coreLevels }),
+    yAxis: axis({ type: state.log ? 'log' : 'value', name, axisLabel: { color: '#8b96ad', formatter: fmtOps }, min: state.log ? 1 : undefined }),
+    tooltip: Object.assign({}, BASE.tooltip, { valueFormatter: fmtOps }),
+    series,
+  }, !series.length);
+}
+
+function latencyChart() {
+  const rows = filtered();
+  const keys = activeSeriesKeys(rows);
+  const pcts = [['p50_ms', 'p50'], ['p99_ms', 'p99'], ['p999_ms', 'p99.9']];
+  const series = keys.map(k => {
+    const a = rows.find(r => seriesKey(r) === k);
+    return { name: seriesLabel(k), type: 'bar', itemStyle: { color: seriesColor(k) }, data: pcts.map(([f]) => a ? +a[f].toFixed(3) : null) };
+  }).filter(s => s.data.some(v => v !== null));
+  draw('c-latency', {
+    xAxis: axis({ type: 'category', data: pcts.map(p => p[1]) }),
+    yAxis: axis({ type: 'log', name: 'ms (log)', min: 0.1, axisLabel: { color: '#8b96ad', formatter: v => String(v) } }),
+    tooltip: Object.assign({}, BASE.tooltip, { valueFormatter: fmtMs }),
+    series,
+  }, !series.length);
+}
+
+function pairedBars(id, dim, values, labels, ignore) {
+  const rows = filtered(ignore);
+  const keys = activeSeriesKeys(rows);
+  const series = keys.map(k => ({
+    name: seriesLabel(k), type: 'bar', itemStyle: { color: seriesColor(k) },
+    data: values.map(v => { const a = rows.find(r => seriesKey(r) === k && r[dim] === v); return a ? Math.round(a.ops_per_sec) : null; }),
+  })).filter(s => s.data.some(v => v !== null));
+  draw(id, {
+    xAxis: axis({ type: 'category', data: labels }),
+    yAxis: axis({ type: state.log ? 'log' : 'value', name: 'ops/s', min: state.log ? 1 : undefined, axisLabel: { color: '#8b96ad', formatter: fmtOps } }),
+    tooltip: Object.assign({}, BASE.tooltip, { valueFormatter: fmtOps }),
+    series,
+  }, !series.length);
+}
+
+function healthChart() {
+  const rows = filtered({ ignoreCores: true });
+  const keys = activeSeriesKeys(rows);
+  const data = keys.map(k => {
+    const rs = rows.filter(r => seriesKey(r) === k);
+    return { key: k, hit: Math.min(...rs.map(r => r.min_hit_rate)), err: rs.reduce((s, r) => s + r.total_errors, 0) };
+  });
+  draw('c-health', {
+    grid: Object.assign({}, BASE.grid, { left: 84, top: 34, bottom: 42 }),
+    xAxis: axis({ type: 'category', data: data.map(d => seriesShort(d.key)), axisLabel: { color: '#8b96ad', interval: 0, fontSize: 11 } }),
+    yAxis: axis({ type: 'value', name: 'min hit rate', min: 0.99, max: 1.0 }),
+    legend: { show: false },
+    tooltip: Object.assign({}, BASE.tooltip, { trigger: 'item', formatter: p => `${seriesLabel(data[p.dataIndex].key)}<br>min hit rate: <b>${data[p.dataIndex].hit.toFixed(4)}</b><br>connection errors: <b>${data[p.dataIndex].err}</b>` }),
+    series: [{ type: 'bar', data: data.map(d => ({ value: +d.hit.toFixed(4), itemStyle: { color: seriesColor(d.key) } })), label: { show: true, position: 'top', color: '#8b96ad', formatter: p => data[p.dataIndex].err + ' err' } }],
+  }, !data.length);
+}
+
+/* go-redis sweep: fixed workload, own dimensions (arm x shape), memtier ref lines */
+function aggregateGoredis(rows) {
+  const groups = new Map();
+  for (const r of rows) {
+    const k = [r.arm, r.async, r.workers, r.inflight].join('|');
+    (groups.get(k) || groups.set(k, []).get(k)).push(r);
+  }
+  return [...groups.values()].map(g => ({
+    arm: g[0].arm, async: g[0].async === '1', workers: +g[0].workers,
+    inflight: +g[0].inflight, total: +g[0].total_inflight,
+    ops: median(g.map(r => parseFloat(r.ops_per_sec) || 0)),
+    p50: median(g.map(r => parseFloat(r.p50_ms) || 0)),
+  }));
+}
+
+const GR_ARMS = [
+  { key: r => r.arm === 'cluster-fd' && r.async, label: 'cluster-fd (async)', color: '#36b3a8' },
+  { key: r => r.arm === 'cluster-fd' && !r.async, label: 'cluster-fd (blocking)', color: '#d98543' },
+  { key: r => r.arm === 'fd-per-node', label: 'fd-per-node (baseline)', color: '#8fa3c8' },
+];
+
+function goredisChart() {
+  const card = document.getElementById('card-goredis');
+  if (!GR.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const shapes = [...new Map(GR.map(r => [`${r.workers}w×${r.inflight}`, r])).values()]
+    .sort((a, b) => a.total - b.total || a.workers - b.workers)
+    .map(r => `${r.workers}w×${r.inflight}`);
+  const series = GR_ARMS.map(a => ({
+    name: a.label, type: 'bar', itemStyle: { color: a.color },
+    data: shapes.map(s => {
+      const r = GR.find(x => `${x.workers}w×${x.inflight}` === s && a.key(x));
+      return r ? Math.round(r.ops) : null;
+    }),
+  })).filter(s => s.data.some(v => v !== null));
+  // Same-day memtier references from the loaded dataset (redis cluster @48c, headline workload)
+  const ref = (mode) => {
+    const a = AGG.find(r => r.engine === 'redis' && r.mode === mode && r.cores === 48 && r.ratio === '1:10' && r.data === '100' && r.pipe === '16');
+    return a ? a.ops_per_sec : null;
+  };
+  const marks = [['realistic (memtier cluster-mode)', ref('cluster')], ['ceiling (memtier per shard)', ref('cluster-sat')]]
+    .filter(m => m[1]).map(([n, v]) => ({ name: n, yAxis: Math.round(v), label: { formatter: `${n}: ${fmtOps(v)}`, color: '#8b96ad', position: 'insideEndTop' }, lineStyle: { type: 'dashed', color: '#8b96ad' } }));
+  if (series.length && marks.length) series[0].markLine = { symbol: 'none', data: marks };
+  draw('c-goredis', {
+    xAxis: axis({ type: 'category', data: shapes, axisLabel: { color: '#8b96ad', fontSize: 11 } }),
+    yAxis: axis({ type: 'log', name: 'ops/s (log)', min: 1000000, axisLabel: { color: '#8b96ad', formatter: fmtOps } }),
+    tooltip: Object.assign({}, BASE.tooltip, { valueFormatter: fmtOps }),
+    series,
+  }, !series.length);
+}
+
+function kpis() {
+  const rows = filtered();
+  const set = (id, v, d) => { document.getElementById(id).textContent = v; document.getElementById(id + '-d').textContent = d; };
+  if (!rows.length) { set('kpi-tp', '–', 'no data'); set('kpi-p99', '–', 'no data'); set('kpi-eff', '–', 'no data'); return; }
+  const ctx = `${state.cores} cores · ${RATIO_LABELS[state.ratio] || state.ratio} · ${state.data} B · p${state.pipe}`;
+  const tp = rows.reduce((a, b) => a.ops_per_sec > b.ops_per_sec ? a : b);
+  set('kpi-tp', fmtOps(tp.ops_per_sec) + ' ops/s', seriesLabel(seriesKey(tp)) + ' · ' + ctx);
+  const lat = rows.reduce((a, b) => a.p99_ms < b.p99_ms ? a : b);
+  set('kpi-p99', fmtMs(lat.p99_ms), seriesLabel(seriesKey(lat)) + ' · ' + ctx);
+  const eff = rows.reduce((a, b) => a.ops_per_core > b.ops_per_core ? a : b);
+  set('kpi-eff', fmtOps(eff.ops_per_core) + ' /core', seriesLabel(seriesKey(eff)) + ' · ' + ctx);
+}
+
+/* ---------- render all ---------- */
+function update() {
+  kpis();
+  lineByCores('c-scaling', 'ops_per_sec', 'ops/s');
+  latencyChart();
+  lineByCores('c-efficiency', 'ops_per_core', 'ops/core');
+  pairedBars('c-pipeline', 'pipe', ['1', '16'], ['no pipelining', 'pipeline 16'], { ignorePipe: true });
+  pairedBars('c-datasize', 'data', ['100', '1024'], ['100 B', '1 KB'], { ignoreData: true });
+  healthChart();
+  goredisChart();
+}
+
+/* ---------- filter UI ---------- */
+function buildFilters() {
+  const engines = [...new Set(AGG.map(a => a.engine))].sort();
+  const modes = [...new Set(AGG.map(a => a.mode))].sort();
+  const opt = (values, labelFn) => values.map(v => `<option value="${v}">${labelFn ? labelFn(v) : v}</option>`).join('');
+
+  const mkChecks = (elId, values, setRef, badge) => {
+    const el = document.getElementById(elId);
+    el.innerHTML = values.map(v => `<label><input type="checkbox" data-v="${v}" checked> ${badge(v)}${v}</label>`).join('');
+    setRef.clear();                       // stale values from a previous dataset must not linger
+    values.forEach(v => setRef.add(v));
+    el.querySelectorAll('input').forEach(cb => cb.addEventListener('change', () => {
+      cb.checked ? setRef.add(cb.dataset.v) : setRef.delete(cb.dataset.v);
+      update();
+    }));
+  };
+  // Engines carry their chart color as a dot; modes carry a shape chip
+  // (1× one process, N× sharded, N×⚡ sharded + per-shard driven) — the groups
+  // read as families at a glance instead of identical checkboxes.
+  mkChecks('f-engine', engines, state.engines,
+    v => `<span class="dot" style="background:${ENGINE_COLORS[v] || '#c39bd3'}"></span> `);
+  mkChecks('f-mode', modes, state.modes,
+    v => `<span class="mchip">${MODE_CHIPS[v] || '?'}</span> `);
+
+  const selects = [
+    ['f-ratio', [...new Set(AGG.map(a => a.ratio))].sort(), 'ratio', v => RATIO_LABELS[v] || v],
+    ['f-data', [...new Set(AGG.map(a => a.data))].sort((x, y) => x - y), 'data', v => v + ' B'],
+    ['f-pipe', [...new Set(AGG.map(a => a.pipe))].sort((x, y) => x - y), 'pipe', v => 'p' + v],
+    ['f-cores', [...new Set(AGG.map(a => a.cores))].sort((x, y) => x - y).map(String), 'cores', v => v + ' cores'],
+  ];
+  for (const [id, values, key, labelFn] of selects) {
+    const el = document.getElementById(id);
+    el.innerHTML = opt(values, labelFn);
+    el.value = state[key];
+    if (el.value !== state[key]) { state[key] = values[values.length - 1]; el.value = state[key]; }
+    el.onchange = () => { state[key] = el.value; update(); };   // onchange: idempotent across rebuilds
+  }
+  const logEl = document.getElementById('f-log');
+  logEl.onchange = e => { state.log = e.target.checked; update(); };
+  logEl.checked = state.log;
+}
+
+function resetToHeadline() {
+  state.ratio = HEADLINE.ratio; state.data = HEADLINE.data; state.pipe = HEADLINE.pipe;
+  state.cores = HEADLINE.cores; state.log = HEADLINE.log;
+  buildFilters();   // rebuilds groups, re-checks everything, clamps selects to available values
+  update();
+}
+
+/* ---------- boot & dataset loading ---------- */
+async function loadDataset(id) {
+  const ds = DATASETS[id];
+  state.dataset = id;
+  const res = await fetch(ds.file);
+  if (!res.ok) throw new Error(`${ds.file}: ${res.status}`);
+  ROWS = parseCSV(await res.text()).filter(ds.keep);
+  AGG = aggregate(ROWS);
+  GR = [];
+  if (ds.goredis) {
+    try {
+      const g = await fetch(ds.goredis);
+      if (g.ok) GR = aggregateGoredis(parseCSVLoose(await g.text()));
+    } catch (e) { /* go-redis file optional */ }
+  }
+  const cv = document.getElementById('caveat');
+  cv.style.display = ds.caveat ? '' : 'none';
+  cv.textContent = ds.caveat || '';
+  // Charts MUST render with the app visible — echarts.init on a display:none
+  // container measures 0 width and every chart collapses to its fallback size.
+  document.getElementById('loader').style.display = 'none';
+  document.getElementById('app').style.display = '';
+  resetToHeadline();   // rebuild filters from this dataset's values + render
+}
+
+/* runs-goredis.csv has its own schema; parse generically without the ops>0 filter */
+function parseCSVLoose(text) {
+  const lines = text.trim().split(/\r?\n/);
+  const head = lines[0].split(',');
+  return lines.slice(1).map(line => {
+    const cells = line.split(',');
+    const r = {};
+    head.forEach((h, i) => r[h] = cells[i] === undefined ? '' : cells[i]);
+    return r;
+  });
+}
+
+function initOnce() {
+  const sel = document.getElementById('f-dataset');
+  sel.innerHTML = Object.entries(DATASETS).map(([id, d]) => `<option value="${id}">${d.label}</option>`).join('');
+  sel.value = state.dataset;
+  sel.onchange = () => loadDataset(sel.value).catch(err => alert('Dataset load failed: ' + err.message));
+  document.getElementById('resetBtn').onclick = resetToHeadline;
+  window.addEventListener('resize', () => Object.values(charts).forEach(c => c.resize()));
+}
+
+const initialDs = new URLSearchParams(location.search).get('ds');
+loadDataset(DATASETS[initialDs] ? initialDs : 'dragonfly-redis-valkey')
+  .then(initOnce)
+  .catch(() => {
+    document.getElementById('loader').innerHTML =
+      'Could not fetch <code>results/runs-aws.csv</code> (opening via file:// blocks fetch).<br>' +
+      'Pick the CSV manually: <input type="file" id="csvPick" accept=".csv">';
+    document.getElementById('csvPick').addEventListener('change', e => {
+      const f = e.target.files[0];
+      if (f) f.text().then(t => {
+        ROWS = parseCSV(t); AGG = aggregate(ROWS); GR = [];
+        document.getElementById('loader').style.display = 'none';
+        document.getElementById('app').style.display = '';
+        initOnce(); resetToHeadline();
+      });
+    });
+  });
+</script>
+</body>
+</html>

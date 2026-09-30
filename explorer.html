@@ -235,7 +235,9 @@ function lineByCores(id, field, name) {
     connectNulls: true,
   })).filter(s => s.data.some(v => v !== null));
   draw(id, {
-    xAxis: axis({ type: 'category', name: 'server cores', nameLocation: 'middle', nameGap: 24, data: coreLevels }),
+    // extra bottom room so the 'server cores' axis title isn't clipped below the ticks
+    grid: Object.assign({}, BASE.grid, { bottom: 48 }),
+    xAxis: axis({ type: 'category', name: 'server cores', nameLocation: 'middle', nameGap: 26, data: coreLevels }),
     yAxis: axis({ type: state.log ? 'log' : 'value', name, axisLabel: { color: '#8b96ad', formatter: fmtOps }, min: state.log ? 1 : undefined }),
     tooltip: Object.assign({}, BASE.tooltip, { valueFormatter: fmtOps }),
     series,

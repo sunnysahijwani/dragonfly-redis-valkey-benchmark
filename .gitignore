@@ -16,8 +16,8 @@ results/dress-rehearsal.log
 results/*.json
 results/.cluster-entry
 
-# ── PRIVATE: go-redis collaboration data (unreleased feature, Nedyalko) ──
-# Do NOT publish until the go-redis autopipeline feature ships or he OKs it.
+# ── PRIVATE: third-party client dataset, shared in confidence ───────────
+# Do NOT publish until the upstream maintainer confirms it is fine to.
 # The explorer hides its go-redis chart automatically when this file is absent,
 # so the deployed/public explorer stays clean without code changes.
 results/runs-goredis.csv

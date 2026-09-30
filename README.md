@@ -4,7 +4,9 @@ A methodology-first throughput/latency/memory benchmark of **Dragonfly**, **Redi
 and **Valkey** on **48 real bare-metal cores** — with the harness, pinned versions,
 and raw data so you can rerun and challenge every number.
 
-📖 **Full write-up (7-part series):** https://two-techies.com/blog/dragonfly-vs-redis-valkey-benchmark
+📖 **Full write-up — every number on one page:** https://two-techies.com/blog/dragonfly-vs-redis-valkey-benchmark
+🔬 **Interactive explorer — filter the raw runs yourself:** https://two-techies.com/benchmarks/dragonfly-redis-valkey
+➕ **KeyDB and Garnet on the same harness:** https://two-techies.com/blog/keydb-vs-garnet-benchmark
 
 ![Throughput vs cores: Dragonfly climbs smoothly to 15.5M, a realistic Redis cluster plateaus at ~5M, the fully-driven cluster ceiling scales to 40M](images/02-scaling.png)
 
@@ -20,6 +22,36 @@ All three are real. Redis's *raw* ceiling is higher, but you only reach it with
 flawless client-side routing and a client as big as the server. Dragonfly gives
 you **3.4× a realistic cluster** for near-zero operational effort. It's a trade-off
 between **raw throughput and operational simplicity** — quantified.
+
+## 🔬 Explore the raw runs in your browser
+
+Don't take the tables on trust — **[open the interactive explorer](https://two-techies.com/benchmarks/dragonfly-redis-valkey)**
+and filter every recorded run by engine, core count, workload, value size and
+pipeline depth. Medians are computed live from the same CSVs in this repo, and
+run health (hit rate, connection errors) is shown behind every plotted point.
+
+- Main capture (Redis / Valkey / Dragonfly): https://two-techies.com/benchmarks/dragonfly-redis-valkey
+- KeyDB + Garnet session: https://two-techies.com/benchmarks/keydb-garnet-benchmark
+
+A dark-themed, self-contained copy ships here as `explorer.html` — serve the repo
+root (`python3 -m http.server 8765`) and open `/explorer.html` to run it offline
+against your own re-run.
+
+## Also measured: KeyDB and Garnet
+
+A second session pointed the same harness at the two engines almost nobody
+benchmarks independently. **It used a different load generator, so these numbers
+are not comparable to the table above** — only to each other.
+
+| Engine (single process, 48 cores) | Throughput | p50 | bytes/key |
+|---|---|---|---|
+| **Garnet** 2.1.6 (Microsoft, .NET) | **≥21.4M ops/s** — client-limited, not a ceiling | 0.68 ms | not measured |
+| **KeyDB** 6.3.4 | **636K ops/s** at 16 threads — *refuses to start above 16* | 22.85 ms | 200.3 |
+
+Garnet scaled near-linearly to 16 cores and was still climbing at 48 when the
+*client* saturated. KeyDB hit a hard architectural wall: above 16 server threads
+it doesn't slow down, it fails to boot (`Invalid number of threads specified`).
+Write-up: https://two-techies.com/blog/keydb-vs-garnet-benchmark
 
 ## TL;DR findings
 
@@ -43,6 +75,19 @@ between **raw throughput and operational simplicity** — quantified.
 - Each engine on its **own best I/O path** (Dragonfly `io_uring`, Redis/Valkey `epoll`).
 - Images **pinned by digest**; every knob recorded per row.
 - Full methodology (including a bias caught in our own setup): see the blog series.
+
+## Known limits — stated, not buried
+
+- **The fully-driven "ceiling" series is 1 repetition per point.** Every other
+  series here is the median of 2. The *shape* reproduces across all five core
+  counts, but treat the exact ceiling digits as ±.
+- **Garnet's number is a floor, not a ceiling.** The load generator saturated
+  before the server did, so the real figure is higher and unmeasured here.
+- **Single node.** No failover, replication, or multi-node Dragonfly/Garnet
+  cluster mode. Durability is off on every engine, identically — this is a cache
+  comparison.
+- **memtier is synthetic.** Uniform-random keys, no application serialisation.
+  The harness accepts a different workload if you have a more representative one.
 
 ## Setup
 

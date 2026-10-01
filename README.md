@@ -88,6 +88,16 @@ Write-up: https://two-techies.com/blog/keydb-vs-garnet-benchmark
   comparison.
 - **memtier is synthetic.** Uniform-random keys, no application serialisation.
   The harness accepts a different workload if you have a more representative one.
+- **⚠️ The `server_cpus` column in the raw CSVs is wrong — ignore it.** It logs the
+  `config.env` default (`0-3`) on every row, including the 48-core runs, because
+  `SERVER_CPUS` was never exported into the recorder. What actually ran: the engine
+  under test was pinned to the 48 **physical** cores `0-47`, with the hyperthread
+  siblings `48-95` deliberately unused — the procedure is in `PHASE-B-RUNBOOK.md`
+  §5 (pick physical cores on one NUMA node from `lscpu -e`, avoid HT siblings).
+  Part 3's CPU reading corroborates it: the 48-shard run sat at 779% of a **4800%**
+  budget, which is 48 cores, not 4. `cores_used`, `shards` and every measured
+  column are correct; this one metadata field is stale and will be fixed before the
+  next capture.
 - **`key_max` means different things in the two cluster modes — don't compare the
   column directly.** For `cluster` (realistic) it is the whole cluster's keyspace:
   1,000,000 keys, so ~20.8k per shard. For `cluster-sat` (the ceiling) it is

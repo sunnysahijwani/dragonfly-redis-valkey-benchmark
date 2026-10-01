@@ -88,6 +88,14 @@ Write-up: https://two-techies.com/blog/keydb-vs-garnet-benchmark
   comparison.
 - **memtier is synthetic.** Uniform-random keys, no application serialisation.
   The harness accepts a different workload if you have a more representative one.
+- **`key_max` means different things in the two cluster modes — don't compare the
+  column directly.** For `cluster` (realistic) it is the whole cluster's keyspace:
+  1,000,000 keys, so ~20.8k per shard. For `cluster-sat` (the ceiling) it is
+  `SAT_KEYS`, applied *per shard* inside that shard's own `{tag}:` prefix: 100,000
+  each, so 48 × 100k = 4.8M keys in total. The raw CSV therefore shows `100000`
+  against `1000000`, which reads as if the ceiling used a smaller keyspace. It is
+  the reverse — the ceiling run touches a ~5× larger working set per shard and ~5×
+  more keys overall, which makes its number harder to reach, not easier.
 
 ## Setup
 

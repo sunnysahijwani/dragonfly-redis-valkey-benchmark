@@ -88,16 +88,16 @@ Write-up: https://two-techies.com/blog/keydb-vs-garnet-benchmark
   comparison.
 - **memtier is synthetic.** Uniform-random keys, no application serialisation.
   The harness accepts a different workload if you have a more representative one.
-- **⚠️ The `server_cpus` column in the raw CSVs is wrong — ignore it.** It logs the
-  `config.env` default (`0-3`) on every row, including the 48-core runs, because
-  `SERVER_CPUS` was never exported into the recorder. What actually ran: the engine
-  under test was pinned to the 48 **physical** cores `0-47`, with the hyperthread
-  siblings `48-95` deliberately unused — the procedure is in `PHASE-B-RUNBOOK.md`
-  §5 (pick physical cores on one NUMA node from `lscpu -e`, avoid HT siblings).
-  Part 3's CPU reading corroborates it: the 48-shard run sat at 779% of a **4800%**
-  budget, which is 48 cores, not 4. `cores_used`, `shards` and every measured
-  column are correct; this one metadata field is stale and will be fixed before the
-  next capture.
+- **⚠️ `server_cpus` is stale on some rows — read it per mode.** On the `cluster`
+  (realistic) and `single` (Dragonfly) rows it logs `config.env`'s default `0-3`
+  at every core count, because `SERVER_CPUS` was not exported into `bench.sh`'s
+  recorder. On the `cluster-sat` (ceiling) rows it is correct — `0-3 / 0-7 /
+  0-15 / 0-23 / 0-47` at 4/8/16/24/48 — so those rows show the real pinning at
+  each level. What ran: the engine under test on physical cores of one NUMA node,
+  hyperthread siblings `48-95` unused (procedure in `PHASE-B-RUNBOOK.md` §5).
+  Part 3's CPU reading agrees: the 48-shard run sat at 779% of a **4800%** budget,
+  which is 48 cores. `cores_used` and `shards` are correct throughout; this
+  recording gap will be closed before the next capture.
 - **`key_max` means different things in the two cluster modes — don't compare the
   column directly.** For `cluster` (realistic) it is the whole cluster's keyspace:
   1,000,000 keys, so ~20.8k per shard. For `cluster-sat` (the ceiling) it is
@@ -105,7 +105,8 @@ Write-up: https://two-techies.com/blog/keydb-vs-garnet-benchmark
   each, so 48 × 100k = 4.8M keys in total. The raw CSV therefore shows `100000`
   against `1000000`, which reads as if the ceiling used a smaller keyspace. It is
   the reverse — the ceiling run touches a ~5× larger working set per shard and ~5×
-  more keys overall, which makes its number harder to reach, not easier.
+  more keys overall. If anything that makes the ceiling harder to reach, not
+  easier, though the size of that effect is unmeasured.
 
 ## Setup
 

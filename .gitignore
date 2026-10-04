@@ -18,10 +18,10 @@ results/.cluster-entry
 
 # ── PRIVATE: third-party client dataset, shared in confidence ───────────
 # Do NOT publish until the upstream maintainer confirms it is fine to.
-# The explorer hides its go-redis chart automatically when this file is absent,
+# The explorer hides this chart automatically when the file is absent,
 # so the deployed/public explorer stays clean without code changes.
-results/runs-goredis.csv
-results/goredis-json/
+results/runs-clientsweep.csv
+results/clientsweep-json/
 
 # ── cruft ───────────────────────────────────────────────────────────────
 __pycache__/

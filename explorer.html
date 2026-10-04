@@ -86,7 +86,7 @@
     <div class="card"><h2>Pipeline effect</h2><div class="desc">no pipelining vs depth 16 at selected core count (pipeline filter not applied here)</div><div class="chart" id="c-pipeline"></div></div>
     <div class="card"><h2>Value-size effect</h2><div class="desc">100 B vs 1 KB at selected core count — gaps compress when the network takes over (value-size filter not applied here)</div><div class="chart" id="c-datasize"></div></div>
     <div class="card"><h2>Run health</h2><div class="desc">minimum hit rate and connection errors behind every plotted point</div><div class="chart" id="c-health"></div></div>
-    <div class="card" id="card-goredis" style="display:none"><h2>go-redis autopipeline sweep — 48 shards</h2><div class="desc">ops/s by worker shape (workers × in-flight each); dashed lines = same-day memtier references. Fixed 1:10 / 100 B / p16-equivalent; main filters don't apply here</div><div class="chart" id="c-goredis"></div></div>
+    <div class="card" id="card-clientsweep" style="display:none"><h2>Client-driven pipelining sweep — 48 shards</h2><div class="desc">ops/s by worker shape (workers × in-flight each); dashed lines = same-day memtier references. Fixed 1:10 / 100 B / p16-equivalent; main filters don't apply here</div><div class="chart" id="c-clientsweep"></div></div>
   </div>
 
   <footer>
@@ -127,24 +127,24 @@ const DATASETS = {
     file: 'results/runs-aws.csv',
     keep: r => true,
     caveat: null,
-    goredis: false,
+    clientsweep: false,
   },
   'keydb-garnet-benchmark': {
-    label: 'KeyDB vs Garnet (Microsoft) + go-redis client — session (Sep 9)',
+    label: 'KeyDB vs Garnet (Microsoft) — session (Sep 9)',
     file: 'results/runs-session2-aws.csv',
     keep: r => (r.run_id || '').startsWith('20260909-'),   // drop Mac-history rows
     caveat: '⚠️ Sep 9 session: client was c7a.24xlarge (AMD) with no placement group — ' +
             'c7i had no capacity that evening. References moved vs the published Sep 1 capture ' +
             '(realistic 6.9M vs 4.6M, ceiling 31.5M vs 40.6M), so the two datasets are NOT ' +
             'directly comparable. All comparisons here are within-session: same day, same boxes.',
-    goredis: 'results/runs-goredis.csv',
+    clientsweep: 'results/runs-clientsweep.csv',
   },
 };
 
 /* ---------- state ---------- */
 let ROWS = [];            // raw parsed rows
 let AGG = [];             // median-aggregated rows
-let GR = [];              // go-redis aggregated rows (private file; empty when absent)
+let GR = [];              // client-sweep aggregated rows (private file; empty when absent)
 let charts = {};          // echarts instances
 const state = { engines: new Set(), modes: new Set(), ratio: '1:10', data: '100', pipe: '16', cores: '48', log: false, dataset: 'dragonfly-redis-valkey' };
 
@@ -292,8 +292,8 @@ function healthChart() {
   }, !data.length);
 }
 
-/* go-redis sweep: fixed workload, own dimensions (arm x shape), memtier ref lines */
-function aggregateGoredis(rows) {
+/* client sweep: fixed workload, own dimensions (arm x shape), memtier ref lines */
+function aggregateClientSweep(rows) {
   const groups = new Map();
   for (const r of rows) {
     const k = [r.arm, r.async, r.workers, r.inflight].join('|');
@@ -313,8 +313,8 @@ const GR_ARMS = [
   { key: r => r.arm === 'fd-per-node', label: 'fd-per-node (baseline)', color: '#8fa3c8' },
 ];
 
-function goredisChart() {
-  const card = document.getElementById('card-goredis');
+function clientSweepChart() {
+  const card = document.getElementById('card-clientsweep');
   if (!GR.length) { card.style.display = 'none'; return; }
   card.style.display = '';
   const shapes = [...new Map(GR.map(r => [`${r.workers}w×${r.inflight}`, r])).values()]
@@ -335,7 +335,7 @@ function goredisChart() {
   const marks = [['realistic (memtier cluster-mode)', ref('cluster')], ['ceiling (memtier per shard)', ref('cluster-sat')]]
     .filter(m => m[1]).map(([n, v]) => ({ name: n, yAxis: Math.round(v), label: { formatter: `${n}: ${fmtOps(v)}`, color: '#8b96ad', position: 'insideEndTop' }, lineStyle: { type: 'dashed', color: '#8b96ad' } }));
   if (series.length && marks.length) series[0].markLine = { symbol: 'none', data: marks };
-  draw('c-goredis', {
+  draw('c-clientsweep', {
     xAxis: axis({ type: 'category', data: shapes, axisLabel: { color: '#8b96ad', fontSize: 11 } }),
     yAxis: axis({ type: 'log', name: 'ops/s (log)', min: 1000000, axisLabel: { color: '#8b96ad', formatter: fmtOps } }),
     tooltip: Object.assign({}, BASE.tooltip, { valueFormatter: fmtOps }),
@@ -365,7 +365,7 @@ function update() {
   pairedBars('c-pipeline', 'pipe', ['1', '16'], ['no pipelining', 'pipeline 16'], { ignorePipe: true });
   pairedBars('c-datasize', 'data', ['100', '1024'], ['100 B', '1 KB'], { ignoreData: true });
   healthChart();
-  goredisChart();
+  clientSweepChart();
 }
 
 /* ---------- filter UI ---------- */
@@ -426,11 +426,11 @@ async function loadDataset(id) {
   ROWS = parseCSV(await res.text()).filter(ds.keep);
   AGG = aggregate(ROWS);
   GR = [];
-  if (ds.goredis) {
+  if (ds.clientsweep) {
     try {
-      const g = await fetch(ds.goredis);
-      if (g.ok) GR = aggregateGoredis(parseCSVLoose(await g.text()));
-    } catch (e) { /* go-redis file optional */ }
+      const g = await fetch(ds.clientsweep);
+      if (g.ok) GR = aggregateClientSweep(parseCSVLoose(await g.text()));
+    } catch (e) { /* client-sweep file optional */ }
   }
   const cv = document.getElementById('caveat');
   cv.style.display = ds.caveat ? '' : 'none';
@@ -442,7 +442,7 @@ async function loadDataset(id) {
   resetToHeadline();   // rebuild filters from this dataset's values + render
 }
 
-/* runs-goredis.csv has its own schema; parse generically without the ops>0 filter */
+/* runs-clientsweep.csv has its own schema; parse generically without the ops>0 filter */
 function parseCSVLoose(text) {
   const lines = text.trim().split(/\r?\n/);
   const head = lines[0].split(',');
